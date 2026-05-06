@@ -1,0 +1,340 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>DJ RAV'S MIX MACHINE</title>
+    <style>
+        :root { 
+            --base-bg: #050505;
+            --machine-bg: #111;
+            --pad-bg: #222;
+            --text-main: #fff;
+            --green: #33ff77;
+        }
+
+        body { 
+            background: var(--base-bg); 
+            color: var(--text-main); 
+            font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; 
+            margin: 0; 
+            display: flex; flex-direction: column; align-items: center;
+            min-height: 100vh;
+            overflow: hidden; 
+        }
+        
+        #unlock-screen {
+            position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
+            background: rgba(0, 0, 0, 0.95); z-index: 9999;
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            cursor: pointer; text-align: center; backdrop-filter: blur(5px);
+        }
+        .start-btn {
+            background: transparent; color: var(--green); font-size: 28px; font-weight: 900;
+            padding: 20px 50px; border: 4px solid var(--green); border-radius: 8px;
+            text-transform: uppercase; letter-spacing: 2px; transition: all 0.2s;
+            box-shadow: 0 0 30px rgba(51, 255, 119, 0.3); text-shadow: 0 0 10px var(--green);
+        }
+        .start-btn:hover { background: var(--green); color: black; box-shadow: 0 0 50px var(--green); }
+
+        /* SCALED DOWN WALL: Was 350px, now 260px */
+        .header-wall { 
+            width: 100%; height: 260px; 
+            background: url('assets/wall.png') center/cover; 
+            border-bottom: 6px solid #fff;
+            display: flex; flex-direction: column; align-items: center; justify-content: flex-end;
+            position: relative;
+            box-shadow: inset 0 -50px 100px rgba(0,0,0,0.8);
+        }
+
+        .dj-profile {
+            display: flex; flex-direction: column; align-items: center;
+            transform: translateY(35px); 
+            z-index: 100; 
+            position: relative;
+        }
+
+        /* SCALED DOWN AVATAR: Was 160px, now 130px */
+        .avatar-huge { 
+            width: 130px; height: 130px; 
+            border-radius: 50%; border: 5px solid #fff; 
+            object-fit: cover; background: #000;
+            box-shadow: 0 0 40px rgba(255, 255, 255, 0.5);
+            transform-origin: center;
+            will-change: transform; 
+        }
+
+        .dj-name {
+            background: #000; color: #fff;
+            padding: 4px 16px; border: 2px solid #fff;
+            font-size: 20px; font-weight: 900; letter-spacing: 3px;
+            margin-top: -10px; text-transform: uppercase;
+        }
+
+        /* TIGHTER DECK PADDING: Saves vertical space */
+        .machine-body { 
+            background: var(--machine-bg); 
+            padding: 45px 30px 30px 30px; 
+            border: 4px solid #333; border-top: none;
+            border-bottom-left-radius: 20px; border-bottom-right-radius: 20px;
+            box-shadow: 0 25px 50px rgba(0, 0, 0, 0.8); 
+            z-index: 10; width: 500px; 
+            margin-bottom: 20px;
+        }
+        
+        .lcd { 
+            background: #020617; color: var(--green); 
+            padding: 12px; border-radius: 4px; margin-bottom: 20px; 
+            font-family: 'Courier New', monospace; font-size: 15px; font-weight: bold;
+            text-align: center; box-shadow: inset 0 0 15px rgba(0,255,0,0.2); 
+            border: 2px solid var(--green); text-shadow: 0 0 5px var(--green);
+        }
+        
+        /* SMALLER GAP BETWEEN PADS */
+        .grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 15px; }
+        
+        /* SHRUNK FONT SIZES so text always fits perfectly */
+        .pad { 
+            width: 100%; aspect-ratio: 1; 
+            background: var(--pad-bg); 
+            border-radius: 8px;
+            display: flex; flex-direction: column; align-items: center; justify-content: center; 
+            font-weight: bold; font-size: 12px; color: #aaa;
+            cursor: pointer; transition: all 0.1s; 
+            box-shadow: 0 6px 0 #000; 
+            border: 2px solid #444;
+            user-select: none;
+        }
+        
+        .pad span { font-size: 26px; color: #fff; margin-bottom: 3px; }
+        
+        .pad.active { 
+            transform: translateY(6px); 
+            box-shadow: 0 0 0 #000; 
+            color: #fff;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="unlock-screen">
+        <div class="start-btn">CLICK HERE TO POWER ON</div>
+    </div>
+
+    <div class="header-wall">
+        <div class="dj-profile">
+            <img src="assets/dj.png" id="dj-pic" class="avatar-huge" alt="DJ RAV">
+            <div class="dj-name">DJ RAV's MIX MACHINE</div>
+        </div>
+    </div>
+
+    <div class="machine-body">
+        <div id="status" class="lcd">SYSTEM BOOTING...</div>
+        <div class="grid" id="pad-grid"></div>
+    </div>
+
+    <script>
+        let audioCtx = null; 
+        const unlockScreen = document.getElementById('unlock-screen');
+        const djPic = document.getElementById('dj-pic');
+
+        unlockScreen.addEventListener('click', () => {
+            if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            if (audioCtx.state === 'suspended') audioCtx.resume();
+            unlockScreen.style.display = 'none';
+            document.getElementById('status').innerText = "AUDIO READY. WAITING FOR BRIDGE...";
+            initBridge(); 
+        });
+        
+        const PADS = [
+            { msg: "1", id: "Sub",   glow: "#0044ff", type: "synth", freq: 65 },   
+            { msg: "2", id: "Lead",  glow: "#ff0088", type: "synth", freq: 261 },  
+            { msg: "3", id: "Chord", glow: "#00ff44", type: "synth", freq: 329 },  
+            { msg: "4", id: "High",  glow: "#ffaa00", type: "synth", freq: 392 },  
+            { msg: "5", id: "Kick",  glow: "#ffffff", type: "drum" },              
+            { msg: "6", id: "Snare", glow: "#00ffff", type: "drum" },              
+            { msg: "7", id: "Zap",   glow: "#aa00ff", type: "drum" },              
+            { msg: "8", id: "Rise",  glow: "#ff0000", type: "drum" }               
+        ];
+
+        function playSound(pad) {
+            if (!audioCtx) return;
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            const now = audioCtx.currentTime;
+            let duration = 0.5;
+
+            if (pad.type === "synth") {
+                osc.type = 'sawtooth'; 
+                osc.frequency.setValueAtTime(pad.freq, now);
+                gain.gain.setValueAtTime(0.5, now); 
+                gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.6);
+                duration = 0.6;
+            } else if (pad.id === "Kick") {
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(150, now);
+                osc.frequency.exponentialRampToValueAtTime(0.01, now + 0.5); 
+                gain.gain.setValueAtTime(1, now);
+                gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.5);
+                duration = 0.5;
+            } else if (pad.id === "Snare") {
+                osc.type = 'square';
+                osc.frequency.setValueAtTime(250, now);
+                gain.gain.setValueAtTime(0.8, now);
+                gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.15);
+                duration = 0.15;
+            } else if (pad.id === "Zap") {
+                osc.type = 'sawtooth';
+                osc.frequency.setValueAtTime(1500, now);
+                osc.frequency.exponentialRampToValueAtTime(40, now + 0.3);
+                gain.gain.setValueAtTime(0.6, now);
+                gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.3);
+                duration = 0.3;
+            } else if (pad.id === "Rise") {
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(50, now);
+                osc.frequency.exponentialRampToValueAtTime(3000, now + 1.5);
+                gain.gain.setValueAtTime(0.1, now);
+                gain.gain.linearRampToValueAtTime(0.8, now + 1.0);
+                gain.gain.linearRampToValueAtTime(0.0001, now + 1.5);
+                duration = 1.5;
+            }
+            
+            osc.connect(gain);
+            gain.connect(audioCtx.destination);
+            osc.start(now); osc.stop(now + duration);
+        }
+
+        let ravX = 0, ravY = 0, ravVx = 0, ravVy = 0, ravRot = 0;
+        let originX = 0, originY = 0;
+        let isBouncing = false;
+        let bounceTimer = null;
+
+        function startBouncing() {
+            djPic.style.transition = 'none'; 
+
+            if (!isBouncing) {
+                const rect = djPic.getBoundingClientRect();
+                originX = rect.left + rect.width / 2;
+                originY = rect.top + rect.height / 2;
+
+                isBouncing = true;
+                
+                ravVx = (Math.random() > 0.5 ? 1 : -1) * (15 + Math.random() * 10);
+                ravVy = (Math.random() > 0.5 ? 1 : -1) * (15 + Math.random() * 10);
+                bounceLoop();
+            } else {
+                ravVx *= 1.15; 
+                ravVy *= 1.15;
+                
+                if (ravVx > 35) ravVx = 35; if (ravVx < -35) ravVx = -35;
+                if (ravVy > 35) ravVy = 35; if (ravVy < -35) ravVy = -35;
+            }
+
+            clearTimeout(bounceTimer);
+            bounceTimer = setTimeout(stopBouncing, 1500);
+        }
+
+        function stopBouncing() {
+            isBouncing = false;
+            djPic.style.transition = 'transform 0.6s cubic-bezier(0.175, 0.885, 0.32, 1.275)';
+            djPic.style.transform = `translate(0px, 0px) rotate(0deg)`;
+            ravX = 0; ravY = 0; ravRot = 0;
+        }
+
+        function bounceLoop() {
+            if (!isBouncing) return;
+
+            ravX += ravVx;
+            ravY += ravVy;
+            ravRot += (ravVx * 0.5); 
+
+            const currentAbsoluteX = originX + ravX;
+            const currentAbsoluteY = originY + ravY;
+            // Radius updated to 65 to match the new 130px width of the DJ avatar!
+            const radius = 65; 
+
+            if (currentAbsoluteX - radius < 0) {
+                ravX = -originX + radius;
+                ravVx *= -1;
+            } else if (currentAbsoluteX + radius > window.innerWidth) {
+                ravX = window.innerWidth - originX - radius;
+                ravVx *= -1;
+            }
+
+            if (currentAbsoluteY - radius < 0) {
+                ravY = -originY + radius;
+                ravVy *= -1;
+            } else if (currentAbsoluteY + radius > window.innerHeight) {
+                ravY = window.innerHeight - originY - radius;
+                ravVy *= -1;
+            }
+
+            djPic.style.transform = `translate(${ravX}px, ${ravY}px) rotate(${ravRot}deg)`;
+            requestAnimationFrame(bounceLoop);
+        }
+
+        const grid = document.getElementById('pad-grid');
+        const status = document.getElementById('status');
+        const padEls = {};
+
+        PADS.forEach(pad => {
+            const div = document.createElement('div');
+            div.className = 'pad';
+            div.innerHTML = `<span>${pad.msg}</span>${pad.id.toUpperCase()}`;
+            div.onclick = () => { trigger(pad.msg); };
+            grid.appendChild(div);
+            padEls[pad.msg] = div;
+        });
+
+        let bgTimeout;
+
+        function trigger(msg) {
+            const clean = msg.toString().trim();
+            const pad = PADS.find(p => p.msg === clean);
+            if (pad) {
+                const el = padEls[clean];
+                
+                status.innerText = `[ CH ${pad.msg} : ${pad.id.toUpperCase()} ]`;
+                playSound(pad);
+                
+                startBouncing();
+
+                el.classList.add('active');
+                el.style.borderColor = pad.glow;
+                el.style.boxShadow = `0 0 40px ${pad.glow}`; 
+                
+                document.body.style.transition = 'none'; 
+                document.body.style.backgroundColor = pad.glow;
+
+                setTimeout(() => {
+                    el.classList.remove('active');
+                    el.style.borderColor = '#444';
+                    el.style.boxShadow = '0 6px 0 #000';
+                }, 150);
+
+                clearTimeout(bgTimeout);
+                bgTimeout = setTimeout(() => {
+                    document.body.style.transition = 'background-color 0.5s ease-out'; 
+                    document.body.style.backgroundColor = 'var(--base-bg)';
+                }, 50); 
+            }
+        }
+
+        function initBridge() {
+            const socket = new WebSocket('ws://localhost:8765');
+            socket.onopen = () => { 
+                status.innerText = "BRIDGE CONNECTED: READY TO MIX"; 
+                status.style.color = "var(--green)"; 
+                status.style.textShadow = "0 0 10px var(--green)";
+            };
+            socket.onmessage = (e) => trigger(e.data);
+            socket.onclose = () => { 
+                status.innerText = "SYSTEM OFFLINE: RETRYING..."; 
+                status.style.color = "#ff4d4d"; 
+                status.style.textShadow = "0 0 10px #ff4d4d";
+                setTimeout(initBridge, 2000); 
+            };
+        }
+    </script>
+</body>
+</html>
