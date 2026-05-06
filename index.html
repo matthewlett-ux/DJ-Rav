@@ -36,7 +36,6 @@
         }
         .start-btn:hover { background: var(--green); color: black; box-shadow: 0 0 50px var(--green); }
 
-        /* SCALED DOWN WALL: Was 350px, now 260px */
         .header-wall { 
             width: 100%; height: 260px; 
             background: url('assets/wall.png') center/cover; 
@@ -53,7 +52,6 @@
             position: relative;
         }
 
-        /* SCALED DOWN AVATAR: Was 160px, now 130px */
         .avatar-huge { 
             width: 130px; height: 130px; 
             border-radius: 50%; border: 5px solid #fff; 
@@ -70,7 +68,6 @@
             margin-top: -10px; text-transform: uppercase;
         }
 
-        /* TIGHTER DECK PADDING: Saves vertical space */
         .machine-body { 
             background: var(--machine-bg); 
             padding: 45px 30px 30px 30px; 
@@ -89,10 +86,8 @@
             border: 2px solid var(--green); text-shadow: 0 0 5px var(--green);
         }
         
-        /* SMALLER GAP BETWEEN PADS */
         .grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 15px; }
         
-        /* SHRUNK FONT SIZES so text always fits perfectly */
         .pad { 
             width: 100%; aspect-ratio: 1; 
             background: var(--pad-bg); 
@@ -117,7 +112,7 @@
 <body>
 
     <div id="unlock-screen">
-        <div class="start-btn">CLICK HERE TO POWER ON</div>
+        <div class="start-btn">CLICK TO CONNECT MICRO:BIT</div>
     </div>
 
     <div class="header-wall">
@@ -136,13 +131,19 @@
         let audioCtx = null; 
         const unlockScreen = document.getElementById('unlock-screen');
         const djPic = document.getElementById('dj-pic');
+        const grid = document.getElementById('pad-grid');
+        const status = document.getElementById('status');
+        const padEls = {};
+        
+        let port;
+        let reader;
 
         unlockScreen.addEventListener('click', () => {
             if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
             if (audioCtx.state === 'suspended') audioCtx.resume();
             unlockScreen.style.display = 'none';
-            document.getElementById('status').innerText = "AUDIO READY. WAITING FOR BRIDGE...";
-            initBridge(); 
+            status.innerText = "SELECTING MICRO:BIT PORT...";
+            connectMicroBit(); 
         });
         
         const PADS = [
@@ -155,6 +156,15 @@
             { msg: "7", id: "Zap",   glow: "#aa00ff", type: "drum" },              
             { msg: "8", id: "Rise",  glow: "#ff0000", type: "drum" }               
         ];
+
+        PADS.forEach(pad => {
+            const div = document.createElement('div');
+            div.className = 'pad';
+            div.innerHTML = `<span>${pad.msg}</span>${pad.id.toUpperCase()}`;
+            div.onclick = () => { trigger(pad.msg); };
+            grid.appendChild(div);
+            padEls[pad.msg] = div;
+        });
 
         function playSound(pad) {
             if (!audioCtx) return;
@@ -250,7 +260,6 @@
 
             const currentAbsoluteX = originX + ravX;
             const currentAbsoluteY = originY + ravY;
-            // Radius updated to 65 to match the new 130px width of the DJ avatar!
             const radius = 65; 
 
             if (currentAbsoluteX - radius < 0) {
@@ -272,19 +281,6 @@
             djPic.style.transform = `translate(${ravX}px, ${ravY}px) rotate(${ravRot}deg)`;
             requestAnimationFrame(bounceLoop);
         }
-
-        const grid = document.getElementById('pad-grid');
-        const status = document.getElementById('status');
-        const padEls = {};
-
-        PADS.forEach(pad => {
-            const div = document.createElement('div');
-            div.className = 'pad';
-            div.innerHTML = `<span>${pad.msg}</span>${pad.id.toUpperCase()}`;
-            div.onclick = () => { trigger(pad.msg); };
-            grid.appendChild(div);
-            padEls[pad.msg] = div;
-        });
 
         let bgTimeout;
 
@@ -320,20 +316,45 @@
             }
         }
 
-        function initBridge() {
-            const socket = new WebSocket('ws://localhost:8765');
-            socket.onopen = () => { 
-                status.innerText = "BRIDGE CONNECTED: READY TO MIX"; 
+        // --- WEB SERIAL LOGIC ---
+        async function connectMicroBit() {
+            try {
+                port = await navigator.serial.requestPort();
+                await port.open({ baudRate: 115200 }); 
+
+                status.innerText = "MICRO:BIT CONNECTED: READY TO MIX"; 
                 status.style.color = "var(--green)"; 
                 status.style.textShadow = "0 0 10px var(--green)";
-            };
-            socket.onmessage = (e) => trigger(e.data);
-            socket.onclose = () => { 
-                status.innerText = "SYSTEM OFFLINE: RETRYING..."; 
+
+                const textDecoder = new TextDecoderStream();
+                const readableStreamClosed = port.readable.pipeTo(textDecoder.writable);
+                reader = textDecoder.readable.getReader();
+
+                let buffer = "";
+                while (port.readable) {
+                    const { value, done } = await reader.read();
+                    if (done) break;
+                    
+                    buffer += value;
+                    let lines = buffer.split('\n');
+                    buffer = lines.pop(); 
+                    
+                    for (let line of lines) {
+                        if (line.trim().length > 0) {
+                            trigger(line);
+                        }
+                    }
+                }
+            } catch (error) {
+                console.error("Connection failed:", error);
+                status.innerText = "CONNECTION FAILED OR DENIED"; 
                 status.style.color = "#ff4d4d"; 
                 status.style.textShadow = "0 0 10px #ff4d4d";
-                setTimeout(initBridge, 2000); 
-            };
+                
+                // Allow user to try again if it fails
+                unlockScreen.style.display = 'flex';
+                unlockScreen.querySelector('.start-btn').innerText = "RETRY CONNECTION";
+            }
         }
     </script>
 </body>
